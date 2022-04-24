@@ -79,3 +79,10 @@ li input {
   height: 26px;
 }
 
+.dragging {
+  border: 1px solid blue !important;
+}
+
+.drag-over {
+  border: 1px dashed purple !important;
+}

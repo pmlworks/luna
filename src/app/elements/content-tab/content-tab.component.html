@@ -1,3 +1,14 @@
+<span
+  [id]="view.id + 'span'"
+  style="display: inline-block;"
+  (drop)="drop($event)"
+  draggable="true"
+  (dragstart)="dragstart($event)"
+  (dragover)="dragover($event)"
+  (dragend)="dragend($event)"
+  (dragleave)="dragleave($event)"
+  [ngClass]="{'dragging':isDragging, 'drag-over':isDragover}"
+>
 <li
   [ngClass]="{'active': view.active,'disconnected': !view.connected, 'hidden': view.closed != false}"
   [id]="view.id" (click)="setActive()" (dblclick)="view.editable=true;setActive()"
@@ -9,3 +20,4 @@
   <input *ngIf="view.editable" [(ngModel)]="view.nick" (blur)="view.editable=false" (keyup.enter)="view.editable=false" autofocus="autofocus"/>
   <a class="close" (click)="close()">&times;</a>
 </li>
+</span>
