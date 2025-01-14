@@ -1,8 +1,11 @@
 import {AfterViewInit, Component, ElementRef, EventEmitter, Input, OnDestroy, OnInit, Output, ViewChild} from '@angular/core';
 import {View} from '@app/model';
-import {ConnectTokenService, HttpService, I18nService, LogService} from '@app/services';
+import {ConnectTokenService, HttpService, I18nService, LogService, ViewService} from '@app/services';
 import {MatDialog} from '@angular/material';
+import {Subject} from 'rxjs';
+import {debounceTime} from 'rxjs/operators';
 import {environment} from '@src/environments/environment';
+import {FaceService} from '@app/services/face';
 
 @Component({
   selector: 'elements-iframe',
@@ -16,6 +19,7 @@ export class ElementIframeComponent implements OnInit, AfterViewInit, OnDestroy 
   @ViewChild('iFrame', {static: false}) iframeRef: ElementRef;
   @Output() onLoad: EventEmitter<Boolean> = new EventEmitter<Boolean>();
   eventHandler: EventListenerOrEventListenerObject;
+  private renewalTrigger = new Subject<void>();
   iframeWindow: Window;
   showIframe = false;
   showValue: boolean = !window['debugIframe'];
@@ -28,6 +32,8 @@ export class ElementIframeComponent implements OnInit, AfterViewInit, OnDestroy 
     private _connectTokenSvc: ConnectTokenService,
     private _http: HttpService,
     private _dialog: MatDialog,
+    public viewSrv: ViewService,
+    private faceService: FaceService
   ) {
   }
 
@@ -40,6 +46,13 @@ export class ElementIframeComponent implements OnInit, AfterViewInit, OnDestroy 
         this.debug = false;
       }, 5000);
     }
+
+    this.renewalTrigger.pipe(
+      debounceTime(2000)
+    ).subscribe(() => {
+      this._http.get(`/api/v1/health/`).subscribe();
+    });
+
     this.id = 'window-' + Math.random().toString(36).substr(2);
     this.eventHandler = function (e: any) {
       const msg = e.data;
@@ -56,12 +69,28 @@ export class ElementIframeComponent implements OnInit, AfterViewInit, OnDestroy 
           break;
         case 'CLOSE':
           this.view.connected = false;
+          if (this.view.connectToken.face_monitor_token) {
+            this.faceService.removeMonitoringTab(this.view.id);
+          }
           break;
         case 'CONNECTED':
           this.view.connected = true;
+          if (this.view.connectToken.face_monitor_token) {
+            this.faceService.addMonitoringTab(this.view.id);
+          }
           break;
         case 'CLICK':
           document.body.click();
+          break;
+        case 'KEYEVENT':
+          window.focus();
+          setTimeout(() => {
+            this.viewSrv.keyboardSwitchTab(msg.data);
+          }, 200);
+          break;
+        case 'KEYBOARDEVENT':
+        case 'MOUSEEVENT':
+          this.renewalTrigger.next();
           break;
       }
     }.bind(this);
@@ -70,6 +99,7 @@ export class ElementIframeComponent implements OnInit, AfterViewInit, OnDestroy 
   ngAfterViewInit() {
     if (this.iframeRef) {
       this.iframeWindow = this.iframeRef.nativeElement.contentWindow;
+      this.view.iframeElement = this.iframeWindow;
       this.handleIframeEvent();
     }
   }
@@ -84,6 +114,7 @@ export class ElementIframeComponent implements OnInit, AfterViewInit, OnDestroy 
   }
 
   handleIframeEvent() {
+    // @ts-ignore
     this.ping = setInterval(() => {
       this._logger.info(`[Luna] Send PING to: ${this.id}`);
       this.iframeWindow.postMessage({name: 'PING', id: this.id}, '*');
@@ -113,7 +144,8 @@ export class ElementIframeComponent implements OnInit, AfterViewInit, OnDestroy 
     this.src = 'about:blank';
     setTimeout(() => {
       this.src = url;
+      this.view.connected = true;
+      this.view.active = true;
     }, 100);
-    this.view.connected = true;
   }
 }

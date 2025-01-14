@@ -1,12 +1,13 @@
-import {Component, ElementRef, EventEmitter, OnInit, OnDestroy, Output, ViewChild} from '@angular/core';
+import {Component, ElementRef, EventEmitter, OnDestroy, OnInit, Output, ViewChild} from '@angular/core';
 import {View, ViewAction} from '@app/model';
-import {ConnectTokenService, I18nService, LogService, SettingService, ViewService, HttpService} from '@app/services';
+import {ConnectTokenService, HttpService, I18nService, LogService, SettingService, ViewService} from '@app/services';
 import {CdkDragDrop, moveItemInArray} from '@angular/cdk/drag-drop';
 import {MatDialog} from '@angular/material';
 import {ElementCommandDialogComponent} from '@app/elements/content/command-dialog/command-dialog.component';
-import {ElementSendCommandDialogComponent} from '@app/elements/content/send-command-dialog/send-command-dialog.component';
+import {ElementSendCommandWithVariableDialogComponent} from '@app/elements/content/send-command-with-variable-dialog/send-command-with-variable-dialog.component';
 import {fromEvent, Subscription} from 'rxjs';
 import * as jQuery from 'jquery/dist/jquery.min.js';
+import * as _ from 'lodash';
 
 @Component({
   selector: 'elements-content',
@@ -70,7 +71,7 @@ export class ElementContentComponent implements OnInit, OnDestroy {
   }
 
   get tabsWidth() {
-    return (this.viewList.length + 1) * 151 + 10;
+    return this.viewList.length * 201;
   }
 
   get showBatchCommand() {
@@ -86,36 +87,25 @@ export class ElementContentComponent implements OnInit, OnDestroy {
     this.handleKeyDownTabChange();
     document.addEventListener('click', this.hideRMenu.bind(this), false);
   }
+
   ngOnDestroy() {
     this.keyboardSubscription.unsubscribe();
   }
 
   handleKeyDownTabChange() {
+    const debouncedSwitch = _.debounce((key: string) => {
+      this.viewSrv.keyboardSwitchTab(key);
+    }, 500);
+
     this.keyboardSubscription = fromEvent(window, 'keydown').subscribe((event: any) => {
-      if (event.altKey && (event.key === 'ArrowRight' || event.key === 'ArrowLeft') && this.viewList.length > 1) {
-        let nextViewId: any = 0;
-        let nextActiveView = null;
-        const viewIds = this.viewSrv.viewIds;
-        const currentViewIndex = viewIds.findIndex(i => i === this.viewSrv.currentView.id);
+      if (event.altKey && event.shiftKey && (event.key === 'ArrowRight' || event.key === 'ArrowLeft') && this.viewList.length > 1) {
+        let key = '';
         if (event.key === 'ArrowRight') {
-          if (currentViewIndex === viewIds.length - 1 && currentViewIndex !== 0) {
-            nextActiveView = this.viewList.find(i => i.id === viewIds[0]);
-          } else {
-            nextViewId = viewIds[currentViewIndex + 1];
-            nextActiveView = this.viewList.find(i => i.id === nextViewId);
-          }
+          key = 'alt+shift+right';
+        } else if (event.key === 'ArrowLeft') {
+          key = 'alt+shift+left';
         }
-        if (event.key === 'ArrowLeft') {
-          if (currentViewIndex === 0) {
-            nextActiveView = this.viewList.find(i => i.id === viewIds[viewIds.length - 1]);
-          } else {
-            nextViewId = viewIds[currentViewIndex - 1];
-            nextActiveView = this.viewList.find(i => i.id === nextViewId);
-          }
-        }
-        if (nextActiveView) {
-          this.setViewActive(nextActiveView);
-        }
+        debouncedSwitch(key);
       }
     });
   }
@@ -164,11 +154,11 @@ export class ElementContentComponent implements OnInit, OnDestroy {
   }
 
   scrollLeft() {
-    this.tabsRef.nativeElement.scrollLeft -= 150 * 2;
+    this.tabsRef.nativeElement.scrollLeft -= 200 * 2;
   }
 
   scrollRight() {
-    this.tabsRef.nativeElement.scrollLeft += 150 * 2;
+    this.tabsRef.nativeElement.scrollLeft += 200 * 2;
   }
 
   scrollEnd() {
@@ -195,7 +185,6 @@ export class ElementContentComponent implements OnInit, OnDestroy {
       if (list[i].protocol !== 'ssh' || list[i].connected !== true) {
         continue;
       }
-      list[i].termComp.sendCommand({'data': cmd});
       const subViews = list[i].subViews;
       if (subViews.length > 1) {
         for (let j = 0; j < subViews.length; j++) {
@@ -204,6 +193,8 @@ export class ElementContentComponent implements OnInit, OnDestroy {
           }
           subViews[j].termComp.sendCommand({'data': cmd});
         }
+      } else {
+        list[i].termComp.sendCommand({'data': cmd});
       }
     }
 
@@ -212,7 +203,26 @@ export class ElementContentComponent implements OnInit, OnDestroy {
 
   sendQuickCommand(command) {
     this.batchCommand = command.args;
-    this.sendBatchCommand();
+    if(command.variable.length>0){
+      const dialogRef=this._dialog.open(
+        ElementSendCommandWithVariableDialogComponent,
+      {
+        height: 'auto',
+        width: '500px',
+        data: {command:command}
+      }
+    )
+      dialogRef.afterClosed().subscribe(result => {
+        if (result) {
+          this.batchCommand = result
+          this.sendBatchCommand();
+        }
+      })
+    }
+    else{
+      this.sendBatchCommand();
+    }
+
   }
 
   rMenuItems() {
@@ -236,7 +246,9 @@ export class ElementContentComponent implements OnInit, OnDestroy {
         title: 'Reconnect',
         icon: 'fa-refresh',
         callback: () => {
-          this.viewList[this.rIdx].termComp.reconnect();
+          const viewId = this.viewIds[this.rIdx];
+          const currentView = this.viewList.find(i => i.id === viewId);
+          currentView.termComp.reconnect();
         }
       },
       {
@@ -255,7 +267,9 @@ export class ElementContentComponent implements OnInit, OnDestroy {
         title: 'Close Current Tab',
         icon: 'fa-close',
         callback: () => {
-          this.closeView(this.viewList[this.rIdx]);
+          const viewId = this.viewIds[this.rIdx];
+          const currentView = this.viewList.find(i => i.id === viewId);
+          this.closeView(currentView);
         }
       },
       {
@@ -349,7 +363,9 @@ export class ElementContentComponent implements OnInit, OnDestroy {
   }
 
   onSendCommand() {
-    if (!this.batchCommand) { return; }
+    if (!this.batchCommand) {
+      return;
+    }
 
     this._dialog.open(
       ElementCommandDialogComponent,

@@ -99,7 +99,7 @@ export class ConnectEvt {
 export class Nav {
   id: string;
   name: string;
-  children?: Array<Nav>;
+  children?: Array<Nav> | Function;
   hide?: boolean = false;
   click?: Function;
   href?: string;
@@ -117,17 +117,11 @@ export class NavEvt {
   }
 }
 
-export class K8sInfo {
-  pod: string = '';
-  namespace: string = '';
-  container: string = '';
-}
-
 export class View {
   id: string;
   name: string;
   connectFrom: string; // connectToken, node, fileManager
-  type: string; // database_app, remote_app, asset, k8s_app
+  type: string; // database_app, remote_app, asset
   protocol: string;
   active: boolean;
   closed: boolean;
@@ -142,9 +136,9 @@ export class View {
   connectMethod: ConnectMethod;
   connectOption: Object;
   smartEndpoint: Endpoint;
-  k8sInfo: K8sInfo;
+  iframeElement: Window;
 
-  constructor(asset: Asset, connectInfo: ConnectData, connToken?: ConnectionToken, connectFrom: string = 'node', k8sInfo?: K8sInfo) {
+  constructor(asset: Asset, connectInfo: ConnectData, connToken?: ConnectionToken, connectFrom: string = 'node') {
     this.closed = false;
     this.editable = false;
     this.connected = true;
@@ -158,7 +152,6 @@ export class View {
     this.connectOption = connectInfo.connectOption;
     this.protocol = connectInfo.protocol.name;
     this.connectData = connectInfo;
-    this.k8sInfo = k8sInfo;
   }
 
   getConnectOption(field: string) {
@@ -271,6 +264,9 @@ export class GlobalSetting {
   INTERFACE: any;
   TERMINAL_GRAPHICAL_RESOLUTION: string;
   CONNECTION_TOKEN_REUSABLE: boolean;
+  CHAT_AI_ENABLED: boolean;
+  VIEW_ASSET_ONLINE_SESSION_INFO: boolean;
+  LANGUAGES: any;
 }
 
 export class Setting {
@@ -279,7 +275,8 @@ export class Setting {
   sqlClient = '1';
 
   basic = {
-    is_async_asset_tree: false
+    is_async_asset_tree: false,
+    connect_default_open_method: 'new'
   };
   graphics = {
     rdp_resolution: 'Auto',
@@ -298,28 +295,29 @@ export class Setting {
 
 
 export class Replay {
-  id: string;
-  src: string;
-  type: string;
-  status: string;
-  timelist: Array<number>;
-  totalTime: number;
-  json: any;
-  user: string;
-  asset: string;
-  system_user: string;
-  date_start: string;
-  date_end: string;
-  height: number;
-  width: number;
-  download_url: string;
+  id?: string;
+  src?: string;
+  type?: string;
+  status?: string;
+  timelist?: Array<number>;
+  totalTime?: number;
+  json?: any;
+  user?: string;
+  asset?: string;
+  system_user?: string;
+  date_start?: string;
+  date_end?: string;
+  height?: number;
+  width?: number;
+  download_url?: string;
+  account?: string;
 }
 
 export class Session {
   asset: string;
   asset_id: string;
   date_start: string;
-  login_from_display: String;
+  login_from_display: string;
   protocol: string;
   remote_addr: string;
   account: string;
@@ -416,10 +414,12 @@ export class ConnectionToken {
   is_active: boolean;
   date_expired: Date;
   is_reusable: boolean;
+  face_token: string;
   from_ticket: {
     id: string;
   };
   from_ticket_info: FromTicketInfo;
+  face_monitor_token: string;
 }
 
 export class Protocol {
@@ -479,7 +479,7 @@ export class InitTreeConfig {
   url?: string;
   setting?: any = {};
   showFavoriteAssets?: boolean = false;
-  loadTreeAsyncUrl?: string;
+  asyncUrl?: string;
 }
 
 export class Ticket {
