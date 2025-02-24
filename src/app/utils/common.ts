@@ -115,7 +115,7 @@ function createWatermarkDiv(content, {
 
     for (let n = 0; n < words.length; n++) {
       line = words[n];
-      line = truncateCenter(line, 25);
+      line = truncateCenter(line, 64);
       _ctx.fillText(line, x, y);
       y += _lineHeight;
     }
@@ -303,6 +303,7 @@ export function connectOnNewPage(node: TreeNode, newWindowMode?: string) {
       count = 0;
     }
     let left = 100 + count * 100;
+    top = 50 + count * 50;
     if (left + screen.width / 3 > screen.width) {
       // 支持两排足以
       top = screen.height / 3;

@@ -1,16 +1,20 @@
-import {ChangeDetectorRef, Component, Inject, OnInit} from '@angular/core';
+import { ChangeDetectorRef, Component, Inject, OnInit } from '@angular/core';
 import 'rxjs/add/operator/toPromise';
-import {AppService, HttpService, I18nService, LogService, SettingService} from '@app/services';
-import {MAT_DIALOG_DATA, MatDialogRef} from '@angular/material';
-import {Account, Asset, AuthInfo, ConnectData, ConnectMethod, Protocol} from '@app/model';
-import {BehaviorSubject} from 'rxjs';
-import {debounceTime} from 'rxjs/operators';
+import { AppService, HttpService, I18nService, LogService, SettingService } from '@app/services';
+import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material';
+import { Account, Asset, AuthInfo, ConnectData, ConnectMethod, Protocol } from '@app/model';
+import { BehaviorSubject } from 'rxjs';
+import { debounceTime } from 'rxjs/operators';
 
+class ConnectButtonInfo {
+  disabled: boolean = false;
+  reason: string = '';
+}
 
 @Component({
   selector: 'elements-asset-tree-dialog',
   templateUrl: 'connect-dialog.component.html',
-  styleUrls: ['./connect-dialog.component.scss'],
+  styleUrls: ['./connect-dialog.component.scss']
 })
 export class ElementConnectDialogComponent implements OnInit {
   public asset: Asset;
@@ -21,6 +25,7 @@ export class ElementConnectDialogComponent implements OnInit {
   public accountSelected: Account = null;
   public connectOption: Object;
   public outputData: ConnectData = new ConnectData();
+  public viewAssetOnlineSessionInfo: boolean = true;
   public manualAuthInfo: AuthInfo = new AuthInfo();
   public connectMethod: ConnectMethod = new ConnectMethod('Null', '', 'null', 'null');
   public preConnectData: ConnectData = new ConnectData();
@@ -28,16 +33,16 @@ export class ElementConnectDialogComponent implements OnInit {
   public accountOrUsernameChanged = new BehaviorSubject(false);
   public onlineNum: number = null;
 
-  constructor(public dialogRef: MatDialogRef<ElementConnectDialogComponent>,
-              private _settingSvc: SettingService,
-              private _cdRef: ChangeDetectorRef,
-              private _http: HttpService,
-              private _logger: LogService,
-              private _appSvc: AppService,
-              private _i18n: I18nService,
-              @Inject(MAT_DIALOG_DATA) public data: any,
-  ) {
-  }
+  constructor(
+    public dialogRef: MatDialogRef<ElementConnectDialogComponent>,
+    private _settingSvc: SettingService,
+    private _cdRef: ChangeDetectorRef,
+    private _http: HttpService,
+    private _logger: LogService,
+    private _appSvc: AppService,
+    private _i18n: I18nService,
+    @Inject(MAT_DIALOG_DATA) public data: any
+  ) {}
 
   ngOnInit() {
     this.accounts = this.data.accounts;
@@ -48,27 +53,32 @@ export class ElementConnectDialogComponent implements OnInit {
       return;
     }
     this.setDefaults();
-    this.accountOrUsernameChanged.pipe(debounceTime(500))
-      .subscribe(_ => {
-        this.getOnlineNum();
-      });
+    this.accountOrUsernameChanged.pipe(debounceTime(500)).subscribe(_ => {
+      this.getOnlineNum();
+    });
   }
 
   getProtocols() {
-    return this.asset.permed_protocols.filter((item) => item.public);
+    return this.asset.permed_protocols.filter(item => item.public);
   }
 
   setDefaults() {
     if (this.preConnectData) {
       const preProtocol = this.preConnectData.protocol || this.protocols[0];
+
       this.protocol = this.protocols.find(p => p.name === preProtocol.name) || this.protocols[0];
-      this.accountSelected = this.accounts.find(a => a.alias === this.preConnectData.account.alias) || new Account();
-      const connectMethod = this._appSvc.getProtocolConnectMethods(this.protocol.name).find(
-        cm => cm.value === this.preConnectData.connectMethod.value
-      );
+
+      this.accountSelected =
+        this.accounts.find(a => a.alias === this.preConnectData.account.alias) || new Account();
+
+      const connectMethod = this._appSvc
+        .getProtocolConnectMethods(this.protocol.name)
+        .find(cm => cm.value === this.preConnectData.connectMethod.value);
+
       if (connectMethod) {
         this.connectMethod = connectMethod;
       }
+
       this.connectOption = this.preConnectData.connectOption || {};
     }
 
@@ -88,6 +98,7 @@ export class ElementConnectDialogComponent implements OnInit {
         this.connectMethod = connectMethods[0];
       }
     }
+    this.viewAssetOnlineSessionInfo = this._settingSvc.globalSetting.VIEW_ASSET_ONLINE_SESSION_INFO
   }
 
   onProtocolChange(protocol) {
@@ -96,6 +107,9 @@ export class ElementConnectDialogComponent implements OnInit {
   }
 
   getOnlineNum() {
+    if (!this.viewAssetOnlineSessionInfo) {
+      return;
+    }
     if (this.protocol.name !== 'rdp') {
       return;
     }
@@ -106,10 +120,9 @@ export class ElementConnectDialogComponent implements OnInit {
     if (!account) {
       return;
     }
-    this._http.getSessionOnlineNum(this.asset.id, account)
-      .subscribe((data) => {
-        this.onlineNum = data['count'];
-      });
+    this._http.getSessionOnlineNum(this.asset.id, account).subscribe(data => {
+      this.onlineNum = data['count'];
+    });
   }
 
   onSelectAccount(account) {
@@ -125,14 +138,23 @@ export class ElementConnectDialogComponent implements OnInit {
     this.accountOrUsernameChanged.next(true);
   }
 
-  isConnectDisabled(): Boolean {
+  connectButtonInfo(): ConnectButtonInfo {
+    const connectButtonInfo = new ConnectButtonInfo();
+    let disabled = false;
+    let transKey = '';
     if (this.accounts.length === 0) {
-      return true;
+      disabled = true;
+      transKey = 'connectDisabledTipsNoAccount';
+    } else if (this.connectMethod && this.connectMethod.disabled === true) {
+      disabled = true;
+      transKey = 'connectDisabledTipsMethodDisabled';
+    } else if (!this.connectMethod) {
+      disabled = true;
+      transKey = 'connectDisabledTipsNoConnectMethod';
     }
-    if (!this.connectMethod || this.connectMethod.disabled === true) {
-      return true;
-    }
-    return false;
+    connectButtonInfo.disabled = disabled;
+    connectButtonInfo.reason = transKey ? this._i18n.instant(transKey) : '';
+    return connectButtonInfo;
   }
 
   onConfirm(downloadRDP = false) {

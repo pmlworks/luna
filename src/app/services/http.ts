@@ -2,7 +2,7 @@ import {Injectable} from '@angular/core';
 import {HttpClient, HttpErrorResponse, HttpHeaders, HttpParams} from '@angular/common/http';
 import {Browser, User} from '@app/globals';
 import {catchError, delay, map, retryWhen, scan} from 'rxjs/operators';
-import {Asset, ConnectData, ConnectionToken, Endpoint, Session, Ticket, TreeNode, User as _User} from '@app/model';
+import {Asset, ConnectData, AdminConnectData, ConnectionToken, Endpoint, Session, Ticket, TreeNode, User as _User} from '@app/model';
 import {getCsrfTokenFromCookie, getQueryParamFromURL} from '@app/utils/common';
 import {Observable} from 'rxjs';
 import {I18nService} from '@app/services/i18n';
@@ -34,9 +34,15 @@ export class HttpService {
       options = {};
     }
     const headers = options.headers || new HttpHeaders();
-    const orgID = this._cookie.get('X-JMS-LUNA-ORG') || this._cookie.get('X-JMS-ORG');
-    options.headers = headers.set('X-JMS-ORG', orgID);
+    if (!headers.get('X-JMS-ORG')) {
+      const orgID = this._cookie.get('X-JMS-LUNA-ORG') || this._cookie.get('X-JMS-ORG');
+      options.headers = headers.set('X-JMS-ORG', orgID);
+    }
     return options;
+  }
+
+  getJMSOrg() {
+    return new HttpHeaders().set('X-JMS-ORG', this._cookie.get('X-JMS-ORG'));
   }
 
   get<T>(url: string, options?: any): Observable<any> {
@@ -50,7 +56,7 @@ export class HttpService {
     if (error.status === 401 && User.logined) {
       const msg = await this._i18n.t('LoginExpireMsg');
       if (confirm(msg)) {
-        window.open('/core/auth/login/?next=/luna/');
+        window.open('/core/auth/login/?next=/luna/', '_blank');
       }
     } else if (error.status === 403) {
       const msg = await this._i18n.t('No permission');
@@ -118,6 +124,16 @@ export class HttpService {
     return this.get<_User>(url);
   }
 
+  getUserSession() {
+    const url = '/api/v1/authentication/user-session/';
+    return this.get<_User>(url);
+  }
+
+  deleteUserSession() {
+    const url = '/api/v1/authentication/user-session/';
+    return this.delete<_User>(url);
+  }
+
   getMyGrantedAssets(keyword) {
     const url = `/api/v1/perms/users/self/assets/tree/?search=${keyword}`;
     return this.get<Array<TreeNode>>(url);
@@ -147,20 +163,14 @@ export class HttpService {
     const syncUrl = '/api/v1/perms/users/self/nodes/all-with-assets/tree/';
     const asyncUrl = '/api/v1/perms/users/self/nodes/children-with-assets/tree/';
     const url = async ? asyncUrl : syncUrl;
-    return this.get<Array<TreeNode>>(url).pipe(this.withRetry());
+    return this.get(url, {observe: 'response'}).pipe(this.withRetry());
   }
 
-  getAssetTypeTree(sync: boolean) {
-    const isSync = !sync ? 1 : 0;
+  getAssetTypeTree(async: boolean) {
+    const isSync = !async ? 1 : 0;
     const url = `/api/v1/perms/users/self/nodes/children-with-assets/category/tree/?sync=${isSync}`;
-    return this.get<Array<TreeNode>>(url).pipe(this.withRetry());
+    return this.get<Array<TreeNode>>(url, {observe: 'response'}).pipe(this.withRetry());
   }
-
-  getMyGrantedK8sNodes(treeId: string, async: boolean) {
-    const url = `/api/v1/perms/users/self/nodes/children-with-k8s/tree/?tree_id=${treeId}&async=${async}`;
-    return this.get<Array<TreeNode>>(url);
-  }
-
 
   getAssetDetail(id) {
     const url = `/api/v1/perms/users/self/assets/${id}/`;
@@ -191,11 +201,22 @@ export class HttpService {
   }
 
   getReplay(sessionId: string) {
-    return this.get(`/api/v1/terminal/sessions/${sessionId}/replay/`);
+    return this.get(
+      `/api/v1/terminal/sessions/${sessionId}/replay/`, {headers: this.getJMSOrg()}
+    );
+  }
+
+  getPartFileReplay(sessionId: string, filename: string) {
+    const params = new HttpParams().set('part_filename', filename);
+    return this.get(
+      `/api/v1/terminal/sessions/${sessionId}/replay/`, {headers: this.getJMSOrg(), params: params}
+    );
   }
 
   getSessionDetail(sid: string): Promise<Session> {
-    return this.get<Session>(`/api/v1/terminal/sessions/${sid}/`).toPromise();
+    return this.get<Session>(
+      `/api/v1/terminal/sessions/${sid}/`, {headers: this.getJMSOrg()}
+    ).toPromise();
   }
 
   getReplayData(src: string) {
@@ -208,7 +229,9 @@ export class HttpService {
       .set('limit', '30')
       .set('offset', String(30 * page))
       .set('order', 'timestamp');
-    return this.get('/api/v1/terminal/commands/', {params: params});
+    return this.get(
+      '/api/v1/terminal/commands/', {params: params, headers: this.getJMSOrg()}
+    );
   }
 
   cleanRDPParams(params) {
@@ -235,8 +258,16 @@ export class HttpService {
     return cleanedParams;
   }
 
-  createConnectToken(asset: Asset, connectData: ConnectData, createTicket = false) {
-    const params = createTicket ? '?create_ticket=1' : '';
+  getFaceVerifyState(token: string) {
+    const url = `/api/v1/authentication/face/context/?token=${token}`;
+    return this.get(url);
+  }
+
+  createConnectToken(asset: Asset, connectData: ConnectData, createTicket = false, face_verify = false, face_monitor_token?: string) {
+
+    let params = createTicket ? '?create_ticket=1' : '';
+    params += face_verify ? '?face_verify=1' : '';
+    params += face_monitor_token ? `&face_monitor_token=${face_monitor_token}` : '';
     const url = '/api/v1/authentication/connection-token/' + params;
     const {account, protocol, manualAuthInfo, connectMethod} = connectData;
     const username = account.username.startsWith('@') ? manualAuthInfo.username : account.username;
@@ -256,8 +287,34 @@ export class HttpService {
     );
   }
 
-  exchangeConnectToken(tokenID: string, createTicket = false) {
-    const params = createTicket ? '?create_ticket=1' : '';
+  directiveConnect(assetId: String) {
+    const url = `/api/v1/assets/assets/${assetId}`
+    return this.get(url)
+  }
+
+  adminConnectToken (asset: Asset, connectData: AdminConnectData, createTicket = false, face_verify = false, face_monitor_token?: string) {
+    let params = '';
+    params += createTicket ? '?create_ticket=1' : '';
+    params += face_verify ? '?face_verify=1' : '';
+    params += face_monitor_token ? `&face_monitor_token=${face_monitor_token}` : '';
+    const url = '/api/v1/authentication/admin-connection-token/' + params;
+    const { account, protocol } = connectData;
+    const data = {
+      asset: asset.id,
+      account: account.name,
+      protocol: protocol,
+      input_username: connectData.input_username,
+      connect_method: connectData.method,
+    };
+    return this.post<ConnectionToken>(url, data).pipe(
+      catchError(this.handleConnectMethodExpiredError.bind(this))
+    );
+  }
+
+  exchangeConnectToken(tokenID: string, createTicket = false, face_verify = false, face_monitor_token?: string) {
+    let params = createTicket ? '?create_ticket=1' : '';
+    params += face_verify ? '?face_verify=1' : '';
+    params += face_monitor_token ? `&face_monitor_token=${face_monitor_token}` : '';
     const url = '/api/v1/authentication/connection-token/exchange/' + params;
     const data = {'id': tokenID};
     return this.post<ConnectionToken>(url, data);
@@ -268,13 +325,16 @@ export class HttpService {
     return this.get(url.href);
   }
 
-  downloadRDPFile(token, params: Object) {
+  downloadRDPFile(token, params: Object, connectOption: any) {
     const url = new URL(`/api/v1/authentication/connection-token/${token.id}/rdp-file/`, window.location.origin);
     params = this.cleanRDPParams(params);
     if (params) {
       for (const [k, v] of Object.entries(params)) {
         url.searchParams.append(k, v);
       }
+    }
+    if (connectOption && connectOption.reusable) {
+      url.searchParams.append('reusable', '1');
     }
     return window.open(url.href);
   }
@@ -360,7 +420,7 @@ export class HttpService {
   }
 
   getQuickCommand() {
-    const url = '/api/v1/ops/adhocs/';
+    const url = '/api/v1/ops/adhocs/?only_mine=true';
     return this.get(url).toPromise();
   }
 

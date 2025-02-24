@@ -8,7 +8,6 @@ import {LocalStorageService, LogService} from './share';
 import {SettingService} from '@app/services/setting';
 import {Account, Asset, AuthInfo, ConnectData, Endpoint, Organization, View} from '@app/model';
 import * as CryptoJS from 'crypto-js';
-import {getCookie, setCookie} from '@app/utils/common';
 import {OrganizationService} from './organization';
 import {I18nService} from '@app/services/i18n';
 
@@ -33,7 +32,7 @@ export class AppService {
   private protocolConnectTypesMap: object = {};
   private checkIntervalId: number;
   private newLoginHasOpen = false; // 避免多次打开新登录页
-  private isCheckingProfile = false; // 是否在检查中
+  private checkSecond = 120;
 
   constructor(private _http: HttpService,
               private _router: Router,
@@ -68,36 +67,82 @@ export class AppService {
     }
   }
 
-  doCheckProfile() {
-    if (this.isCheckingProfile) {
-      return;
-    }
-    this.isCheckingProfile = true;
-    User.logined = false;
-    this._http.get(`/api/v1/users/profile/?fields_size=mini`).subscribe(
-      (res) => {
-        User.logined = true;
-        this.newLoginHasOpen = false;
-        this.isCheckingProfile = false;
-      },
-      (err) => {
-        const ok = confirm(this._i18n.instant('LoginExpireMsg'));
-        if (ok && !this.newLoginHasOpen) {
-          window.open('/core/auth/login/?next=/luna/');
-          this.newLoginHasOpen = true;
+  async getProfileStatus(recheck = false) {
+    let status = '';
+    let statusTime = '';
+    // From local storage
+    if (!recheck) {
+      statusTime = localStorage.getItem('checkProfile');
+      if (statusTime && statusTime.split(' ').length === 2) {
+        const time = statusTime.split(' ')[1];
+        const expired = new Date().getTime() - parseInt(time, 10) > 1000 * this.checkSecond;
+        if (!expired) {
+          status = statusTime.split(' ')[0];
         }
-        this.isCheckingProfile = false;
-        setTimeout(() => {
-          this.doCheckProfile();
-        }, 5000);
       }
-    );
+    }
+
+    if (!status) {
+      User.logined = false;
+      try {
+        await this._http.get(`/api/v1/users/profile/?fields_size=mini`).toPromise();
+        status = 'ok';
+        User.logined = true;
+      } catch (err) {
+        status = 'error'; // 默认错误状态
+        if (err.status === 401) {
+          status = 'unauthorized';
+        } else if (err.status === 400) {
+          status = 'badrequest';
+        }
+      } finally {
+        localStorage.setItem('checkProfile', status + ' ' + new Date().getTime());
+      }
+    } else {
+      this._logger.debug('Found cache using: ', statusTime);
+    }
+    return status;
   }
 
-  intervalCheckLogin(second: number = 60 * 2, clear: boolean = false) {
+  async doCheckProfile(recheck = false) {
+    const status = await this.getProfileStatus(recheck);
+    if (['unauthorized', 'badrequest', 'error'].includes(status)) {
+      clearInterval(this.checkIntervalId);
+      const ok = confirm(this._i18n.instant(this.getErrorMsg(status)));
+      if (ok && !this.newLoginHasOpen) {
+        window.open('/core/auth/login/?next=/luna/', '_blank');
+        this.newLoginHasOpen = true;
+      }
+      setTimeout(() => this.doCheckProfile(true), 5000);
+      this._logger.debug(`${status}, redirect to login`);
+    } else if (status === 'ok') {
+      this.newLoginHasOpen = false;
+      if (recheck) {
+        this.intervalCheckLogin().then();
+      }
+      this._logger.debug('Profile is ok');
+    }
+    return status;
+  }
+
+  getErrorMsg(status: string) {
+    const messages = {
+      'unauthorized': 'LoginExpireMsg',
+      'badrequest': 'Bad request. The server does not understand the syntax of the request',
+      'error': 'The server encountered an error while trying to process the request'
+    };
+    return messages[status];
+  }
+
+  async intervalCheckLogin(second = null, clear: boolean = false) {
+    if (second == null) {
+      second = this.checkSecond;
+    }
     if (this.checkIntervalId) {
       clearInterval(this.checkIntervalId);
     }
+
+    // @ts-ignore
     this.checkIntervalId = setInterval(() => {
       this.doCheckProfile();
     }, second * 1000);
@@ -120,17 +165,6 @@ export class AppService {
 
     // Connection connectToken 方式不用检查过期了
     const token = this.getQueryString('token');
-    // Determine whether the user has logged in
-    const sessionExpire = getCookie('jms_session_expire');
-    if (!sessionExpire && !token) {
-      setCookie('jms_session_expire', 'close', 120);
-      gotoLogin();
-      return;
-    } else if (sessionExpire === 'close') {
-      setInterval(() => {
-        setCookie('jms_session_expire', sessionExpire, 120);
-      }, 10 * 1000);
-    }
 
     this._http.getUserProfile().subscribe(
       user => {
@@ -219,21 +253,28 @@ export class AppService {
 
   getPreConnectData(asset: Asset): ConnectData {
     const key = `JMS_PRE_${asset.id}`;
+
     const connectData = this._localStorage.get(key) as ConnectData;
+
     if (!connectData) {
       return null;
     }
+
     connectData.manualAuthInfo = new AuthInfo();
+
     if (connectData.account.has_secret) {
       return connectData;
     }
+
     if (connectData.account) {
       const auths = this.getAccountLocalAuth(asset.id);
       const matched = auths.find(item => item.alias === connectData.account.alias);
+
       if (matched) {
         connectData.manualAuthInfo = matched;
       }
     }
+
     return connectData;
   }
 

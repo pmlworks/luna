@@ -1,6 +1,7 @@
 import {Injectable} from '@angular/core';
 import {View} from '@app/model';
-
+import {BehaviorSubject} from 'rxjs';
+import {FaceService} from '@app/services/face';
 
 @Injectable()
 export class ViewService {
@@ -8,12 +9,20 @@ export class ViewService {
   currentView: View;
   num = 0;
   viewIds: Array<string> = [];
+  public currentView$ = new BehaviorSubject<Object>({});
+
+  constructor(private faceService: FaceService) {
+  }
 
   addView(view: View) {
     this.num += 1;
     view.id = 'View_' + this.num;
     this.viewList.push(view);
     this.viewIds.push(view.id);
+
+    if (view.connectToken.face_monitor_token) {
+      this.faceService.addMonitoringTab(view.id);
+    }
   }
 
   activeView(view: View) {
@@ -36,6 +45,7 @@ export class ViewService {
       }
     }, 100);
     this.currentView = view;
+    this.setCurrentView();
   }
 
   removeView(view: View) {
@@ -43,22 +53,30 @@ export class ViewService {
     this.viewList.splice(index, 1);
     const idIndex = this.viewIds.indexOf(view.id);
     this.viewIds.splice(idIndex, 1);
+    if (this.viewList.length === 0) {
+      this.setCurrentView({});
+    }
+    if (view.connectToken.face_monitor_token) {
+      this.faceService.removeMonitoringTab(view.id);
+    }
   }
 
   addSubViewToCurrentView(view: View) {
     this.currentView.subViews.push(view);
     const index = this.currentView.subViews.length;
     this.setCurrentViewTitle(view, index + 1, 'concat');
+    this.setCurrentView();
   }
 
   clearSubViewOfCurrentView(view: View) {
     const index = this.currentView.subViews.indexOf(view);
     this.currentView.subViews.splice(index, 1);
     this.setCurrentViewTitle(view, index + 1, 'delete');
+    this.setCurrentView();
   }
 
   setCurrentViewTitle(view, index, status) {
-    const { name } = this.currentView;
+    const {name} = this.currentView;
     switch (status) {
       case 'concat':
         this.currentView.name = name + '|' + view.name;
@@ -71,5 +89,36 @@ export class ViewService {
         this.currentView.name = names.join('|');
         break;
     }
+    this.setCurrentView();
+  }
+
+  keyboardSwitchTab(key) {
+    let nextViewId: any = 0;
+    let nextActiveView = null;
+    const viewIds = this.viewIds;
+    const currentViewIndex = viewIds.findIndex(i => i === this.currentView.id);
+    if (key === 'alt+shift+right') {
+      if (currentViewIndex === viewIds.length - 1 && currentViewIndex !== 0) {
+        nextActiveView = this.viewList.find(i => i.id === viewIds[0]);
+      } else {
+        nextViewId = viewIds[currentViewIndex + 1];
+        nextActiveView = this.viewList.find(i => i.id === nextViewId);
+      }
+    }
+    if (key === 'alt+shift+left') {
+      if (currentViewIndex === 0) {
+        nextActiveView = this.viewList.find(i => i.id === viewIds[viewIds.length - 1]);
+      } else {
+        nextViewId = viewIds[currentViewIndex - 1];
+        nextActiveView = this.viewList.find(i => i.id === nextViewId);
+      }
+    }
+    if (nextActiveView) {
+      this.activeView(nextActiveView);
+    }
+  }
+
+  setCurrentView(view: Object = this.currentView) {
+    this.currentView$.next(view);
   }
 }

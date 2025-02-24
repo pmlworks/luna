@@ -1,5 +1,5 @@
 import {Component, EventEmitter, Input, OnInit, Output} from '@angular/core';
-import {Account, ConnectMethod, AuthInfo, Protocol} from '@app/model';
+import {Account, AuthInfo, ConnectMethod, Protocol} from '@app/model';
 import {AppService, I18nService, SettingService} from '@app/services';
 
 @Component({
@@ -97,7 +97,7 @@ export class ElementConnectMethodComponent implements OnInit {
       return false;
     }
     if (this.account && !this.account.has_secret) {
-      const aliases = ['@USER', '@INPUT'];
+      const aliases = ['@USER', '@INPUT', '@ANON'];
       // 同名账号、手动输入可以下载RDP文件
       if (!aliases.includes(this.account.alias) || (!this.manualAuthInfo.username)) {
         return false;
