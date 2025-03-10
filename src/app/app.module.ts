@@ -36,11 +36,47 @@ import {ClipboardService} from 'ngx-clipboard';
 import {ElementsReplayMp4Component} from './elements/replay/mp4/mp4.component';
 import {ElementCommandDialogComponent} from '@app/elements/content/command-dialog/command-dialog.component';
 import {ElementSendCommandDialogComponent} from '@app/elements/content/send-command-dialog/send-command-dialog.component';
+import {ElementSendCommandWithVariableDialogComponent} from '@app/elements/content/send-command-with-variable-dialog/send-command-with-variable-dialog.component';
+import {DynamicFormComponent} from '@app/elements/content/variable-dynamic-form/variable-dynamic-form.component';
 import {version} from '../environments/environment';
+import {BehaviorSubject, forkJoin, Observable, of} from 'rxjs';
+import {FileInputAccessorModule} from 'file-input-accessor';
+import {catchError, mergeMap} from 'rxjs/operators';
+
 
 export function HttpLoaderFactory(http: HttpClient) {
-  return new TranslateHttpLoader(http, '/luna/assets/i18n/', '.json?v=' + version);
+  return new TranslateHttpLoader(http, '/api/v1/settings/i18n/luna/?lang=', '&v=' + version);
 }
+
+export class CustomLoader implements TranslateLoader {
+
+  constructor(private http: HttpClient) {
+  }
+
+  public getTranslation(lang: String): Observable<any> {
+    const remote = '/api/v1/settings/i18n/luna/?lang=' + lang + '&v=' + version;
+    const local = '/luna/assets/i18n/' + lang + '.json';
+
+    return forkJoin([
+      this.http.get(remote).pipe(
+        catchError(() => {
+          return of({}); // 返回空对象或其他默认值
+        })
+      ),
+      this.http.get(local).pipe(
+        catchError(() => {
+          return of({}); // 返回空对象或其他默认值
+        })
+      )
+    ]).pipe(
+      mergeMap((res) => {
+        const finalRes = Object.assign({}, res[1], res[0]);
+        return new BehaviorSubject(finalRes);
+      })
+    );
+  }
+}
+
 
 @NgModule({
   imports: [
@@ -57,10 +93,12 @@ export function HttpLoaderFactory(http: HttpClient) {
     TranslateModule.forRoot({
       loader: {
         provide: TranslateLoader,
-        useFactory: HttpLoaderFactory,
+        useClass: CustomLoader,
+        // useFactory: HttpLoaderFactory,
         deps: [HttpClient]
       }
     }),
+    FileInputAccessorModule,
     ...PluginModules,
   ],
   declarations: [
@@ -81,6 +119,8 @@ export function HttpLoaderFactory(http: HttpClient) {
     ElementDialogAlertComponent,
     ElementCommandDialogComponent,
     ElementSendCommandDialogComponent,
+    DynamicFormComponent,
+    ElementSendCommandWithVariableDialogComponent
   ],
   bootstrap: [AppComponent],
   providers: [

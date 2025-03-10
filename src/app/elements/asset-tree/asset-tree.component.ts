@@ -9,17 +9,18 @@ import {connectEvt, DEFAULT_ORG_ID, SYSTEM_ORG_ID} from '@app/globals';
 import * as _ from 'lodash';
 import {
   AppService,
+  ConnectTokenService,
   HttpService,
   I18nService,
   LogService,
   OrganizationService,
   SettingService,
   TreeFilterService,
-  ConnectTokenService,
   ViewService
 } from '@app/services';
 import {ConnectEvt, InitTreeConfig, TreeNode} from '@app/model';
 import {CookieService} from 'ngx-cookie-service';
+import {HttpHeaders} from '@angular/common/http';
 
 declare var $: any;
 
@@ -50,14 +51,18 @@ class Tree {
   search: boolean;
   checkbox: boolean;
   ztree: any;
+  config: any;
+  inited = false;
+  complete = true;
 
-  constructor(name, label, open, loading, search, checkbox) {
+  constructor(name, label, open, loading, search, checkbox, config = null) {
     this.name = name;
     this.label = label;
     this.open = open;
     this.loading = loading;
     this.search = search;
     this.checkbox = checkbox;
+    this.config = config;
   }
 }
 
@@ -69,7 +74,6 @@ class Tree {
 })
 export class ElementAssetTreeComponent implements OnInit {
   @Input() query: string;
-  @Input() isK8s: boolean = false;
   @Input() searchEvt$: BehaviorSubject<string>;
   @ViewChild('rMenu', {static: false}) rMenu: ElementRef;
   setting = {
@@ -97,6 +101,7 @@ export class ElementAssetTreeComponent implements OnInit {
   isShowRMenu = false;
   rightClickSelectNode: any;
   isLoadTreeAsync: boolean;
+  isOpenNewWindow: boolean;
   filterAssetCancel$: Subject<boolean> = new Subject();
   favoriteAssets = [];
   searchValue = '';
@@ -144,21 +149,21 @@ export class ElementAssetTreeComponent implements OnInit {
         'id': 'connect',
         'name': 'Connect',
         'fa': 'fa-terminal',
-        'hide': cnode.isParent && !this.isK8s,
+        'hide': cnode.isParent,
         'click': this.onMenuConnect.bind(this)
       },
       {
         'id': 'new-connection',
         'name': 'Open in new window',
         'fa': 'fa-external-link',
-        'hide': this.isK8s || cnode.isParent,
+        'hide': cnode.isParent,
         'click': this.onMenuConnectNewTab.bind(this)
       },
       {
         'id': 'split-connect',
         'name': 'Split connect',
         'fa': 'fa-columns',
-        'hide': viewList.length <= 0 || (cnode.isParent && !this.isK8s),
+        'hide': viewList.length <= 0 || cnode.isParent,
         'click': this.onMenuConnect.bind(this, true)
       },
       {
@@ -199,25 +204,25 @@ export class ElementAssetTreeComponent implements OnInit {
         'id': 'favorite',
         'name': 'Favorite',
         'fa': 'fa-star-o',
-        'hide': this.isAssetFavorite() || this.isK8s || cnode.isParent,
+        'hide': this.isAssetFavorite() || cnode.isParent,
         'click': this.onMenuFavorite.bind(this)
       },
       {
         'id': 'disfavor',
         'name': 'Disfavor',
         'fa': 'fa-star',
-        'hide': !this.isAssetFavorite() || this.isK8s || cnode.isParent,
+        'hide': !this.isAssetFavorite() || cnode.isParent,
         'click': this.onMenuFavorite.bind(this)
       }
     ];
   }
 
   ngOnInit() {
-    this._settingSvc.isLoadTreeAsync$.subscribe((state) => {
-      this.isLoadTreeAsync = state;
-    });
     this.currentOrgID = this._cookie.get('X-JMS-LUNA-ORG') || this._cookie.get('X-JMS-ORG');
-    this._settingSvc.initialized$.subscribe((state) => {
+    this._settingSvc.afterInited().then((state) => {
+      this.isLoadTreeAsync = this._settingSvc.isLoadTreeAsync();
+      this.isOpenNewWindow = this._settingSvc.isOpenNewWindow();
+
       if (state) {
         if (!this._settingSvc.hasXPack() && this.currentOrgID === SYSTEM_ORG_ID) {
           this.currentOrgID = DEFAULT_ORG_ID;
@@ -230,12 +235,8 @@ export class ElementAssetTreeComponent implements OnInit {
   }
 
   initTree() {
-    if (this.isK8s) {
-      this.initK8sTree().then();
-    } else {
-      this.initAssetTree().then();
-      this.initTypeTree().then();
-    }
+    this.initAssetTree().then();
+    this.initTypeTree().then();
   }
 
   onNodeClick(event, treeId, treeNode, clickFlag) {
@@ -252,7 +253,11 @@ export class ElementAssetTreeComponent implements OnInit {
       this._dialog.open(DisabledAssetsDialogComponent, config);
       return;
     }
-    this.connectAsset(treeNode).then();
+    if (this.isOpenNewWindow) {
+      connectOnNewPage(treeNode, 'auto');
+    } else {
+      this.connectAsset(treeNode).then();
+    }
   }
 
   onAssetTreeCheck(event, treeId) {
@@ -260,80 +265,88 @@ export class ElementAssetTreeComponent implements OnInit {
     this.assetTreeChecked = ztree.getCheckedNodes().filter(i => !i.isParent);
   }
 
-  async initK8sTree(refresh = false) {
-    const tree = new Tree(
-      'K8sTree',
-      this._i18n.instant('Kubernetes'),
-      true,
-      true,
-      false,
-      false
-    );
-    const token = this._route.snapshot.queryParams.token;
-    const url = `/api/v1/perms/users/self/nodes/children-with-k8s/tree/?token=${token}`;
-    this.initTreeInfo(tree, {
-      refresh,
-      url,
-      setting: {
-        async: {
-          enable: true,
-          url: url,
-          autoParam: ['id=key', 'name=n', 'level=lv'],
-          type: 'get',
-          headers: {
-            'X-JMS-ORG': this.currentOrgID
-          }
-        }
-      },
-      showFavoriteAssets: false
-    }).then();
-  }
-
   async initAssetTree(refresh = false) {
+    const config = {
+      refresh,
+      showFavoriteAssets: true,
+      url: '/api/v1/perms/users/self/nodes/all-with-assets/tree/',
+      asyncUrl: '/api/v1/perms/users/self/nodes/children-with-assets/tree/?'
+    };
     const tree = new Tree(
       'AssetTree',
       'My assets',
+      false,
       true,
       true,
       true,
-      true
+      config
     );
-    await this.initTreeInfo(tree, {
-      refresh,
-      apiName: 'getMyGrantedNodes',
-      showFavoriteAssets: true,
-      loadTreeAsyncUrl: '/api/v1/perms/users/self/nodes/children-with-assets/tree/?'
-    });
+    if (!refresh) {
+      this.trees.push(tree);
+    }
+    this.initTreeInfo(tree, config).then();
   }
 
   async initTypeTree(refresh = false) {
+    const config = {
+      refresh,
+      url: '/api/v1/perms/users/self/nodes/children-with-assets/category/tree/?sync=1',
+      asyncUrl: '/api/v1/perms/users/self/nodes/children-with-assets/category/tree/',
+      setting: {
+        async: {
+          autoParam: ['type', 'category']
+        }
+      },
+    };
     const tree = new Tree(
       'AssetTypeTree',
       this._i18n.instant('Type tree'),
       true,
       true,
       false,
-      true
+      true,
+      config
     );
-    await this.initTreeInfo(tree, {
-      refresh,
-      apiName: 'getAssetTypeTree',
-      showFavoriteAssets: false,
-      loadTreeAsyncUrl: '/api/v1/perms/users/self/nodes/children-with-assets/category/tree/?',
-      setting: {
-        async: {
-          autoParam: ['type']
-        }
-      },
-    });
+    if (!refresh) {
+      this.trees.push(tree);
+    } else {
+      this.initTreeInfo(tree, config).then();
+    }
   }
 
-  async initTreeInfo(tree: Tree, config: InitTreeConfig) {
-    if (config.refresh) {
-      tree = this.trees.find(t => t.name === tree.name);
-    } else {
-      this.trees.push(tree);
-    }
+  getOffsetTreeNodes(body, url, headers: HttpHeaders, tree) {
+    const offset = headers.get('X-JMS-TREE-OFFSET');
+    const options = {
+      observe: 'response', params: {offset: offset}
+    };
+    const treeObj = tree.ztree;
+    this._http.get(url, options).subscribe(
+      resp => {
+        const newBody = resp.body;
+        const newHeaders = resp.headers;
+        if (newBody.length === 0) {
+          tree.complete = true;
+          const parents = treeObj.getNodesByParam('isParent', true);
+          for (const node of parents) {
+            node.name = node.meta._name;
+            treeObj.updateNode(node);
+          }
+          return;
+        }
+        const grouped = _.groupBy(newBody, 'pId');
+        Object.entries(grouped).forEach(([key, value]) => {
+          const parent = treeObj.getNodeByParam('id', key);
+          treeObj.addNodes(parent, -1, value, true);
+        });
+        return this.getOffsetTreeNodes(body, url, newHeaders, tree);
+      },
+      error => {
+        this._logger.error('Get tree error: ', error);
+      }
+    );
+  }
+
+  cleanupTreeSetting(config: InitTreeConfig) {
     let setting = Object.assign({}, this.setting);
     setting['callback'] = {
       onClick: _.debounce(this.onNodeClick, 300, {
@@ -343,18 +356,29 @@ export class ElementAssetTreeComponent implements OnInit {
       onCheck: this.onAssetTreeCheck.bind(this),
       onRightClick: this.onRightClick.bind(this)
     };
+    let url = config.url;
     if (this.isLoadTreeAsync) {
       setting['async'] = {
         enable: true,
-        url: config.loadTreeAsyncUrl,
+        url: config.asyncUrl,
         autoParam: ['id=key', 'name=n', 'level=lv'],
         type: 'get',
         headers: {
           'X-JMS-ORG': this.currentOrgID
         }
       };
+      url = config.asyncUrl;
     }
     setting = _.merge(setting, config.setting || {});
+    return {setting, url};
+  }
+
+  async initTreeInfo(tree: Tree, config: InitTreeConfig) {
+    tree.inited = true;
+    if (config.refresh) {
+      tree = this.trees.find(t => t.name === tree.name);
+    }
+    const {setting, url} = this.cleanupTreeSetting(config);
 
     if (config.showFavoriteAssets) {
       this._http.getFavoriteAssets().subscribe(resp => {
@@ -362,25 +386,42 @@ export class ElementAssetTreeComponent implements OnInit {
       });
     }
     tree.loading = true;
-    const request = config.hasOwnProperty('apiName')
-      ? this._http[config.apiName](this.isLoadTreeAsync)
-      : this._http.get(config.url);
-    request.subscribe(resp => {
-      if (config.refresh) {
-        tree.ztree.expandAll(false);
-        tree.ztree.destroy();
-      }
-      setTimeout(() => {
-        tree.ztree = $.fn.zTree.init($('#' + tree.name), setting, resp);
-      }, 100);
-    }, error => {
-      if (error.status === 400) {
-        alert(error.error.detail);
-      }
-      this._logger.error('Get tree error: ', error);
-    }, () => {
-      tree.loading = false;
-    });
+    const request = this._http.get(url, {observe: 'response'});
+    request.subscribe(
+      resp => {
+        // 如果是刷新，需要先销毁原来的树, 重新初始化
+        if (config.refresh) {
+          tree.ztree.expandAll(false);
+          tree.ztree.destroy();
+        }
+        const body = resp.body;
+        const headers = resp.headers;
+        setTimeout(() => {
+          // 新的 api 支持树的分页
+          const offset = headers.get('X-JMS-TREE-OFFSET');
+          if (offset && offset !== '0') {
+            const parents = body.filter(node => node.isParent);
+            for (const node of parents) {
+              node.meta._name = node.name;
+              node.name = node.name.replace(/\(\d+\)$/, '(-)');
+            }
+            setTimeout(() => {
+              tree.complete = false;
+              this.getOffsetTreeNodes(body, url, resp.headers, tree);
+            }, 100);
+          }
+          tree.ztree = $.fn.zTree.init($('#' + tree.name), setting, body);
+        }, 100);
+      },
+      error => {
+        if (error.status === 400) {
+          alert(error.error.detail);
+        }
+        this._logger.error('Get tree error: ', error);
+      },
+      () => {
+        tree.loading = false;
+      });
   }
 
   isTreeCheckEnabled(tree) {
@@ -427,20 +468,19 @@ export class ElementAssetTreeComponent implements OnInit {
   async refreshTree(event, tree) {
     event.stopPropagation();
     this.searchValue = '';
-    if (this.isK8s) {
-      this.initK8sTree(true).then();
-    } else {
-      if (tree.name === 'AssetTree') {
-        this.initAssetTree(true).then();
-      }
-      if (tree.name === 'AssetTypeTree') {
-        this.initTypeTree(true).then();
-      }
+    if (tree.name === 'AssetTree') {
+      this.initAssetTree(true).then();
+    } else if (tree.name === 'AssetTypeTree') {
+      this.initTypeTree(true).then();
     }
   }
 
+  stopOffsetTree(tree) {
+    tree.complete = true;
+  }
+
   async connectAsset(node: TreeNode) {
-    const action = this.isK8s ? 'k8s' : 'asset';
+    const action = 'asset';
     const evt = new ConnectEvt(node, action);
     connectEvt.next(evt);
   }
@@ -539,7 +579,7 @@ export class ElementAssetTreeComponent implements OnInit {
       return;
     }
     const node = this.rightClickSelectNode;
-    const action = this.isK8s ? 'k8s' : 'connect';
+    const action = 'connect';
     const evt = splitConnect ? new ConnectEvt(node, action, true) : new ConnectEvt(node, action);
     connectEvt.next(evt);
   }
@@ -742,6 +782,10 @@ export class ElementAssetTreeComponent implements OnInit {
 
   foldTree(tree: Tree) {
     this.trees.map(item => {
+      if (!tree.inited) {
+        this.initTreeInfo(tree, tree.config).then(() => {
+        });
+      }
       if (tree.name === item.name) {
         item.open = !item.open;
       } else {

@@ -12,7 +12,7 @@ import {
   SettingService,
   ViewService
 } from '@app/services';
-import {Account, Asset, ConnectData, ConnectionToken, K8sInfo, View} from '@app/model';
+import {Account, Asset, ConnectData, ConnectionToken, View} from '@app/model';
 import {ElementConnectDialogComponent} from './connect-dialog/connect-dialog.component';
 import {ElementDownloadDialogComponent} from './download-dialog/download-dialog.component';
 import {launchLocalApp} from '@app/utils/common';
@@ -57,16 +57,22 @@ export class ElementConnectComponent implements OnInit, OnDestroy {
     if (this.hasLoginTo || !loginTo) {
       return;
     }
+
     this.hasLoginTo = true;
+
     this._http.filterMyGrantedAssetsById(loginTo).subscribe(nodes => {
       let node;
+
       if (nodes.length === 1) {
         node = nodes[0];
       } else {
         node = nodes[1];
       }
+
       const titles = document.title.split(' - ');
+
       document.title = node.name + ' - ' + titles[titles.length - 1];
+
       this._http.getAssetDetail(node.id).subscribe(asset => {
         this.connectAsset(asset).then();
       });
@@ -76,76 +82,16 @@ export class ElementConnectComponent implements OnInit, OnDestroy {
   analysisId(id: string) {
     const idObject = {};
     const idList = id.split('&');
-    for (let i = 0; i < idList.length; i++) {
-      idObject[idList[i].split('=')[0]] = (idList[i].split('=')[1]);
+    for (const element of idList) {
+      idObject[element.split('=')[0]] = (element.split('=')[1]);
     }
     return idObject;
-  }
-
-  connectK8sAsset(id) {
-    const idObject = this.analysisId(id);
-    const token = this._route.snapshot.queryParams.token;
-    this._http.getConnectToken(token).subscribe(connToken => {
-      this._http.getAssetDetail(connToken.asset.id).subscribe(asset => {
-        const accountList = asset.permed_accounts;
-        let account = new Account();
-        if (['@INPUT', '@USER'].includes(connToken.account)) {
-          account.name = connToken.input_username;
-          account.username = connToken.input_username;
-          account.alias = connToken.account;
-        } else {
-          const accounts = accountList.filter(item => item.name === connToken.account);
-          if (accounts.length === 0) {
-            return;
-          }
-          account = accounts[0];
-        }
-        const type = 'k8s';
-        const connectInfo = new ConnectData();
-        connToken.asset['type'] = {'value': type};
-        connectInfo.asset = connToken.asset;
-        connectInfo.account = account;
-        connectInfo.protocol = {
-          'name': type,
-          'port': 443,
-          'public': true,
-          'setting': {}
-        };
-        connectInfo.manualAuthInfo = {
-          alias: account.alias,
-          username: account.username,
-          secret: undefined,
-          rememberAuth: false
-        };
-        connectInfo.connectMethod = {
-          type: type,
-          value: 'web_cli',
-          component: 'koko',
-          label: type,
-          endpoint_protocol: 'http',
-          disabled: false,
-        };
-        const kInfo = new K8sInfo();
-        kInfo.pod = idObject['pod'];
-        kInfo.namespace = idObject['namespace'];
-        kInfo.container = idObject['container'];
-
-        this._logger.debug('Connect info: ', connectInfo);
-        this.createWebView(connToken.asset, connectInfo, connToken, kInfo);
-      });
-    });
   }
 
   subscribeConnectEvent() {
     connectEvt.asObservable().subscribe(evt => {
       if (!evt.node) {
         return;
-      }
-      if (evt.action === 'k8s') {
-        if (['asset', 'container'].indexOf(evt.node.meta.data.identity) !== -1) {
-          this.connectK8sAsset(evt.node.id);
-          return;
-        }
       }
 
       this._http.getAssetDetail(evt.node.id).subscribe(asset => {
@@ -177,13 +123,17 @@ export class ElementConnectComponent implements OnInit, OnDestroy {
       await this._dialogAlert.alert(msg);
       return;
     }
+
     const accounts = asset.permed_accounts;
     const connectInfo = await this.getConnectData(accounts, asset);
+
     if (!connectInfo) {
       this._logger.info('Just close the dialog');
       return;
     }
+
     this._logger.debug('Connect info: ', connectInfo);
+
     const connectMethod = connectInfo.connectMethod;
     const connectOption = connectInfo.connectOption;
     const connToken = await this._connectTokenSvc.create(asset, connectInfo);
@@ -194,7 +144,9 @@ export class ElementConnectComponent implements OnInit, OnDestroy {
     }
 
     if (connToken.protocol === 'k8s') {
-      window.open(`/luna/k8s?token=${connToken.id}`);
+      const baseUrl = `${window.location.protocol}//${window.location.host}/`;
+      const fullUrl = `${baseUrl}koko/k8s/?token=${connToken.id}`;
+      window.open(fullUrl);
       return;
     }
 
@@ -213,7 +165,7 @@ export class ElementConnectComponent implements OnInit, OnDestroy {
     }
 
     if (connectInfo.downloadRDP) {
-      return this._http.downloadRDPFile(connToken, this._settingSvc.setting);
+      return this._http.downloadRDPFile(connToken, this._settingSvc.setting, connectInfo.connectOption);
     } else if (connectMethod.type === 'native') {
       this.callLocalClient(connToken).then();
     } else if (connectMethod.type === 'applet' && appletConnectMethod === 'client') {
@@ -240,13 +192,13 @@ export class ElementConnectComponent implements OnInit, OnDestroy {
   }
 
 
-  createWebView(asset: Asset, connectInfo: any, connToken: ConnectionToken, k8sInfo?: K8sInfo) {
-    const view = new View(asset, connectInfo, connToken, 'node', k8sInfo);
+  createWebView(asset: Asset, connectInfo: any, connToken: ConnectionToken) {
+    const view = new View(asset, connectInfo, connToken, 'node');
     this.onNewView.emit(view);
   }
 
-  currentWebSubView(asset: Asset, connectInfo: any, connToken: ConnectionToken, k8sInfo?: K8sInfo) {
-    const view = new View(asset, connectInfo, connToken, 'node', k8sInfo);
+  currentWebSubView(asset: Asset, connectInfo: any, connToken: ConnectionToken) {
+    const view = new View(asset, connectInfo, connToken, 'node');
     this.viewSrv.addSubViewToCurrentView(view);
   }
 
@@ -292,25 +244,28 @@ export class ElementConnectComponent implements OnInit, OnDestroy {
   }
 
   getConnectData(accounts: Account[], asset: Asset): Promise<ConnectData> {
+    let dialogWidth = '600px';
     const preConnectData = this._appSvc.getPreConnectData(asset);
     const isValid = this.checkPreConnectDataForAuto(asset, accounts, preConnectData);
-    if (isValid) {
-      return new Promise<ConnectData>(resolve => {
-        resolve(preConnectData);
-      });
-    }
 
+    if (isValid) {
+      return Promise.resolve(preConnectData);
+    }
+    if (this._i18n.getLangCode() === 'pt-br') {
+      dialogWidth = '730px'
+    }
     this._appSvc.connectDialogShown = true;
     const dialogRef = this._dialog.open(ElementConnectDialogComponent, {
       minHeight: '300px',
       height: 'auto',
-      width: '600px',
+      width: dialogWidth,
       data: {accounts, asset, preConnectData}
     });
 
     return new Promise<ConnectData>(resolve => {
       dialogRef.afterClosed().subscribe(outputData => {
         this._appSvc.connectDialogShown = false;
+
         resolve(outputData);
       });
     });

@@ -1,7 +1,7 @@
 
 .connect-type-group {
   border: solid #cbc9c9 1px;
-  padding: 3px 5px;
+  padding: 0 5px 3px 5px;
 }
 
 .connect-grouped-methods {
@@ -19,7 +19,8 @@
 .connect-type-group ::ng-deep .mat-tab-group {
   .mat-tab-label {
     height: 32px !important;
-    padding: 0 10px !important;
+    min-width: 20px !important;
+    padding: 0 0 !important;
   }
 
   .mat-tab-label:focus {
@@ -29,4 +30,8 @@
   .mat-tab-label-active {
     background-color: white;
   }
+}
+
+.question {
+  color: #5d5d5d;
 }

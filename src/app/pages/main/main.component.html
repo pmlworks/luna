@@ -1,3 +1,4 @@
+<app-face-monitor></app-face-monitor>
 <elements-nav></elements-nav>
 <as-split
   (dragEnd)="dragEndHandler($event)"
@@ -12,13 +13,14 @@
     *ngIf="store.showLeftBar"
     [size]="settingLayoutSize.leftWidth"
     class="left-side"
-    id="left-side" order="0"
+    id="left-side"
+    order="0"
   >
     <div class="layout">
       <div [ngClass]="{'menu-active':showSubMenu}" class="menu-icon">
         <div
           (click)="menuClick()"
-          *ngIf="this._settingSvc.hasXPack()"
+          *ngIf="true"
           class="menu-organization"
         >
           <span style="font-size: 13px;">
@@ -45,6 +47,7 @@
     #rightArea
     [size]="settingLayoutSize.rightWidth"
     class="content"
+    id="right-side"
     order="1"
   >
     <div>
@@ -57,3 +60,4 @@
     </div>
   </as-split-area>
 </as-split>
+<elements-chat></elements-chat>

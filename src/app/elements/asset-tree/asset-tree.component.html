@@ -42,14 +42,21 @@
         </a>
         <i
           (click)="toggleTreeCheckable($event, tree)"
-          [matTooltip]="('Batch actions' | translate)"
+          [matTooltip]="('Batch actions(select and right click)' | translate)"
           [ngClass]="isTreeCheckEnabled(tree) ? 'fa-check-square' : 'fa-square-o'"
           class="fa tree-banner-icon"
         ></i>
         <i
           (click)="refreshTree($event, tree)"
+          *ngIf="tree.complete"
           [matTooltip]="('Refresh' | translate)"
           class="fa fa-refresh tree-banner-icon"
+        ></i>
+        <i
+          (click)="stopOffsetTree(tree)"
+          *ngIf="!tree.complete"
+          [matTooltip]="('Stop' | translate)"
+          class="fa fa-square tree-banner-icon"
         ></i>
       </span>
     </span>

@@ -13,8 +13,10 @@ export class SettingService {
   settingKey = 'LunaSetting';
   public initialized$ = new BehaviorSubject<boolean>(false);
   public isLoadTreeAsync$ = new BehaviorSubject<boolean>(true);
+  public isOpenNewWindow$ = new BehaviorSubject<boolean>(false);
   public appletConnectMethod$ = new BehaviorSubject<string>('');
   public keyboardLayout$ = new BehaviorSubject<string>('');
+  public isDirectNavigation$ = new BehaviorSubject<boolean>(false);
 
 
   constructor(
@@ -22,11 +24,6 @@ export class SettingService {
     private _http: HttpService,
     private _i18n: I18nService
   ) {
-    this.getSystemSetting().then(() => {
-      this.setIsLoadTreeAsync();
-      this.setAppletConnectMethod();
-      this.setKeyboardLayout();
-    });
     this.init().then();
   }
 
@@ -55,6 +52,8 @@ export class SettingService {
       const localSetting = this._localStorage.get(this.settingKey);
       this.setting = Object.assign(this.setting, localSetting, serverSetting);
       this._localStorage.set(this.settingKey, this.setting);
+      this.setAppletConnectMethod();
+      this.setKeyboardLayout();
       resolve();
     });
   }
@@ -99,22 +98,40 @@ export class SettingService {
     if (this.initialized$.value) {
       return;
     }
+    await this.getSystemSetting();
     await this.getPublicSettings();
     this.initialized$.next(true);
+  }
+
+  afterInited() {
+    if (this.initialized$.value) {
+      return Promise.resolve(true);
+    }
+    return new Promise((resolve) => {
+      this.initialized$.subscribe((inited) => {
+        if (inited) {
+          resolve(true);
+        }
+      });
+    });
   }
 
   save() {
     const url = '/api/v1/users/preference/?category=luna';
     this._http.patch(url, this.setting).toPromise();
     this._localStorage.set(this.settingKey, this.setting);
-    this.setIsLoadTreeAsync();
     this.setAppletConnectMethod();
     this.setKeyboardLayout();
   }
 
-  setIsLoadTreeAsync() {
-    this.isLoadTreeAsync$.next(this.setting.basic.is_async_asset_tree);
+  isLoadTreeAsync() {
+    return this.setting.basic.is_async_asset_tree;
   }
+
+  isOpenNewWindow() {
+    return this.setting.basic.connect_default_open_method === 'new';
+  }
+
 
   setAppletConnectMethod() {
     this.appletConnectMethod$.next(this.setting.graphics.applet_connection_method);

@@ -1,14 +1,14 @@
 import {Component, ElementRef, HostListener, OnInit, ViewChild} from '@angular/core';
 import {DataStore, User} from '@app/globals';
 import {IOutputData, SplitComponent} from 'angular-split';
-import {LogService, SettingService, ViewService} from '@app/services';
+import {HttpService, LogService, SettingService, ViewService} from '@app/services';
 import * as _ from 'lodash';
 import {environment} from '@src/environments/environment';
 
 @Component({
   selector: 'pages-main',
   templateUrl: './main.component.html',
-  styleUrls: ['./main.component.css'],
+  styleUrls: ['./main.component.scss'],
 })
 export class PageMainComponent implements OnInit {
   @ViewChild(SplitComponent, {read: false, static: false}) split: SplitComponent;
@@ -19,12 +19,14 @@ export class PageMainComponent implements OnInit {
   showIframeHider = false;
   showSubMenu: any = false;
   menus: Array<object>;
+  isDirectNavigation: boolean;
   settingLayoutSize = {
     leftWidth: 20,
     rightWidth: 80
   };
 
   constructor(public viewSrv: ViewService,
+              private _http: HttpService,
               private _logger: LogService,
               public _settingSvc: SettingService) {
   }
@@ -87,6 +89,10 @@ export class PageMainComponent implements OnInit {
 
   ngOnInit(): void {
     console.log('main init');
+    this._http.getUserSession().subscribe();
+    this._settingSvc.isDirectNavigation$.subscribe((state) => {
+      this.isDirectNavigation = state;
+    });
     this.menus = [
       {
         name: 'assets',
@@ -137,12 +143,13 @@ export class PageMainComponent implements OnInit {
     }
   }
 
-
   @HostListener('window:beforeunload', ['$event'])
   unloadNotification($event: any) {
-    if (!environment.production) {
+    this._http.deleteUserSession().subscribe();
+    if (!environment.production || this.isDirectNavigation) {
       return;
     }
+
     const notInIframe = window.self === window.top;
     const notInReplay = location.pathname.indexOf('/luna/replay') === -1;
     const returnValue = !(notInIframe && notInReplay);

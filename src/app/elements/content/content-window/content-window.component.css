@@ -18,11 +18,15 @@ div, elements-term, elements-guacamole {
   display: flex;
   flex-flow: row wrap;
   align-content: flex-start;
+  overflow-y: scroll;
 }
 
 .sub-view {
   flex: 1;
   height: 100%;
+}
+
+.border-style {
   border-left: 1px solid black;
 }
 

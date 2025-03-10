@@ -6,11 +6,12 @@ import {ElementSettingComponent} from '@app/elements/setting/setting.component';
 import {MAT_DIALOG_DATA, MatDialog, MatDialogRef} from '@angular/material';
 import {Nav, View} from '@app/model';
 import {I18nService} from '@app/services/i18n';
+import {useTheme} from '@app/utils/useTheme';
 
 @Component({
   selector: 'elements-nav',
   templateUrl: './nav.component.html',
-  styleUrls: ['./nav.component.css'],
+  styleUrls: ['./nav.component.scss'],
 })
 export class ElementNavComponent implements OnInit {
   DataStore = DataStore;
@@ -34,8 +35,7 @@ export class ElementNavComponent implements OnInit {
   get viewListSorted() {
     const viewList = [];
     this.viewIds.forEach((id, index) => {
-      const view = this.viewList.find(i => i.id === id);
-      viewList[index] = view;
+      viewList[index] = this.viewList.find(i => i.id === id);
     });
     return viewList;
   }
@@ -44,10 +44,6 @@ export class ElementNavComponent implements OnInit {
     this.navs = this.getNav();
     this.viewList = this._viewSrv.viewList;
     this.viewIds = this._viewSrv.viewIds;
-  }
-
-  refreshNav() {
-    this.navs = this.getNav();
   }
 
   getNav() {
@@ -69,24 +65,7 @@ export class ElementNavComponent implements OnInit {
         id: 'View',
         name: 'View',
         children: [
-          {
-            id: 'SplitVertical',
-            href: '',
-            name: 'Split vertical',
-            disable: true
-          },
-          {
-            id: 'CommandBar',
-            href: '',
-            name: 'Command bar',
-            disable: true
-          },
-          {
-            id: 'ShareSession',
-            href: '',
-            name: 'Share session (read/write)',
-            disable: true
-          },
+          // 此处直接使用空串的话，在渲染时会被 nif 判断为 false 从而只有禁用效果而不展示文字内容
           {
             id: 'FullScreen',
             click: () => {
@@ -114,29 +93,7 @@ export class ElementNavComponent implements OnInit {
       {
         id: 'Language',
         name: 'Language',
-        children: [
-          {
-            id: 'English',
-            click: () => {
-              this._i18n.use('en');
-            },
-            name: 'English'
-          },
-          {
-            id: 'Chinese',
-            click: () => {
-              this._i18n.use('zh');
-            },
-            name: '中文'
-          },
-          {
-            id: 'Japanese',
-            click: () => {
-              this._i18n.use('ja');
-            },
-            name: '日本語'
-          }
-        ]
+        children: this.getLanguageOptions(),
       },
       {
         id: 'Setting',
@@ -184,6 +141,33 @@ export class ElementNavComponent implements OnInit {
         ]
       },
       {
+        id: 'Tabs',
+        name: this._i18n.instant('Tabs'),
+        children: []
+      },
+      {
+        id: 'Theme',
+        name: this._i18n.instant('Theme'),
+        children: [
+          {
+            id: 'Default',
+            click: () => {
+              localStorage.setItem('themeType', 'default');
+              useTheme().switchTheme();
+            },
+            name: this._i18n.instant('Default')
+          },
+          {
+            id: 'DarkBlue',
+            click: () => {
+              localStorage.setItem('themeType', 'darkBlue');
+              useTheme().switchTheme();
+            },
+            name: this._i18n.instant('DarkBlue')
+          }
+        ]
+      },
+      {
         id: 'Help',
         name: 'Help',
         children: [
@@ -213,6 +197,24 @@ export class ElementNavComponent implements OnInit {
         ]
       },
     ];
+  }
+
+  getLanguageOptions() {
+    const langOptions = [];
+    this._settingSvc.afterInited().then((state) => {
+      const languages = this._settingSvc.globalSetting.LANGUAGES;
+      for (const langObj of languages) {
+        langOptions.push({
+          id: langObj.code,
+          click: () => {
+            this._i18n.use(langObj.code);
+            window.location.reload();
+          },
+          name: langObj.name
+        });
+      }
+    });
+    return langOptions;
   }
 
   onJumpUi() {

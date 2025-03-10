@@ -5,8 +5,7 @@ iframe {
 .title {
   min-width: 100px;
   max-width: 180px;
-  font-size: 15px;
-  font-weight: 400;
+  font-size: 14px;
 }
 
 .subject {
@@ -23,13 +22,19 @@ iframe {
     border-spacing: 0;
     border-collapse: collapse;
     font-size: 14px;
+    width: 100%;
 
     td {
       padding: 7px 13px;
       border: 1px solid #30363d;
     }
 
+    .title {
+      width: 20%;
+    }
+
     .text-td {
+      width: 70%;
       position: relative;
       padding-right: 35px;
       word-wrap: break-word;
@@ -60,7 +65,7 @@ iframe {
 
     .btn {
       padding: 8px 10px;
-      top: 6px;
+      top: 4px;
       right: 8px;
 
       &:hover {
